@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <title>CATASTO-RUNNING</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.10.0/ol.css" />
+  <style>#map{position:relative;width:600px;height:400px}</style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="catasto-controls"></div>
+  <div class="catasto-note" id="catasto-note"></div>
+  <pre id="results"></pre>
+  <div id="dump" style="display:none"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/ol@10.10.0/dist/ol.js"></script>
+  <script src="../js/config.js"></script>
+  <script src="../js/measure.js"></script>
+  <script src="../js/store.js"></script>
+  <script src="../js/catasto.js"></script>
+  <script src="../js/map.js"></script>
+  <script>
+    var lines = [];
+    function say(text) {
+      lines.push(text);
+      document.getElementById('results').textContent = lines.join('\n');
+    }
+
+    // Si passa il contenitore, così viene costruita la VERA interfaccia catastale
+    var map = Campagna.map.init('map', {
+      catastoContainer: document.getElementById('catasto-controls'),
+      catastoNote: document.getElementById('catasto-note')
+    });
+
+    map.getLayers().getArray().forEach(function (layer) {
+      if (layer.get('key')) layer.setVisible(false);
+    });
+
+    var center = ol.proj.fromLonLat([11.1005, 42.7502]);
+
+    function statsFor(zoom) {
+      return new Promise(function (resolve) {
+        map.getView().setZoom(zoom);
+
+        var size = map.getSize();
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.round(size[0]);
+        canvas.height = Math.round(size[1]);
+        var previous = map.getTarget();
+        var settled = false;
+
+        function done() {
+          if (settled) return;
+          settled = true;
+          map.un('rendercomplete', done);
+
+          var result = document.createElement('canvas');
+          result.width = canvas.width;
+          result.height = canvas.height;
+          result.getContext('2d').drawImage(canvas, 0, 0);
+          map.setTarget(previous);
+
+          var out = { nonWhite: 0, colors: {} };
+          try {
+            var data = result.getContext('2d').getImageData(0, 0, result.width, result.height).data;
+            for (var i = 0; i < data.length; i += 4) {
+              if (data[i + 3] === 0) continue;
+              var r = data[i], g = data[i + 1], b = data[i + 2];
+              if (!(r > 250 && g > 250 && b > 250)) {
+                out.nonWhite += 1;
+                var k = r + ',' + g + ',' + b;
+                out.colors[k] = (out.colors[k] || 0) + 1;
+              }
+            }
+          } catch (err) {
+            out.tainted = err.name;
+          }
+          resolve(out);
+        }
+
+        map.setTarget(canvas);
+        map.once('rendercomplete', done);
+        setTimeout(done, 7000);
+        map.renderSync();
+      });
+    }
+
+    map.getView().setCenter(center);
+
+    snapshotUi();
+
+    function snapshotUi() {
+      // --- 1. percorso reale dell'interfaccia: click sulle caselle ---
+      var boxes = document.querySelectorAll('[data-catasto-toggle]');
+      say('caselle trovate nella UI: ' + boxes.length);
+
+      Array.prototype.forEach.call(boxes, function (box) {
+        box.checked = true;
+        box.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+
+      var group = Campagna.map.getCatastoGroup();
+      say('dopo il click sulla UI -> ' + group.getLayers().getArray().map(function (l) {
+        return l.get('catastoKey') + '[vis=' + l.getVisible() + ',op=' + l.getOpacity() + ']';
+      }).join(' '));
+
+      var note = document.getElementById('catasto-note').textContent;
+      say('nota di scala mostrata: ' + (note ? '"' + note + '"' : '(nessuna)'));
+
+      // --- 2. a quali zoom si vede qualcosa ---
+      var zooms = [12, 14, 17, 18];
+      var report = [];
+
+      var chain = Promise.resolve();
+      zooms.forEach(function (z) {
+        chain = chain.then(function () {
+          return statsFor(z).then(function (s) {
+            var top = Object.keys(s.colors)
+              .sort(function (a, b) { return s.colors[b] - s.colors[a]; })
+              .slice(0, 2)
+              .join(' ');
+            report.push('zoom ' + z + ': nonBianchi=' + s.nonWhite +
+              (s.tainted ? ' CANVAS SPORCATO(' + s.tainted + ')' : '') +
+              (top ? '  colori: ' + top : ''));
+          });
+        });
+      });
+
+      chain.then(function () {
+        say('--- contenuto catastale per zoom (600x400 px) ---');
+        report.forEach(say);
+        say('');
+        say('inoltro /catasto disponibile: ' + Campagna.catasto.isProxyAvailable());
+        say('URL catasto in uso: ' + Campagna.config.catasto.url);
+        say('DONE');
+        document.title = 'CATASTO-DONE';
+      });
+    }
+  </script>
+</body>
+</html>

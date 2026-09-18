@@ -1,0 +1,6 @@
+node_modules/
+.vercel
+.DS_Store
+
+# file di lavoro dei test
+/tmp-*.js

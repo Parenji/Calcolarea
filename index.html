@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CALCOLAREA — appezzamenti, superfici e catasto</title>
+  <meta name="description" content="Disegna il contorno di un appezzamento su mappa o satellite, leggi superficie e perimetro, sovrapponi la cartografia catastale italiana ed esporta un'immagine PNG con i dati." />
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.10.0/ol.css" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Comandi rapidi sulla mappa (solo schermo piccolo) -->
+    <div id="comandi-rapidi">
+      <button type="button" id="rapido-cerca" class="pillola">
+        Cerca particella
+      </button>
+      <button type="button" id="rapido-disegna" class="pillola">
+        Disegna area
+      </button>
+    </div>
+
+    <!-- Menu rapidi: contengono le sezioni del pannello, spostate qui su mobile -->
+    <div id="rapido-cerca-pannello" class="menu-rapido" hidden>
+      <button type="button" class="menu-rapido-chiudi" aria-label="Chiudi">&#215;</button>
+      <div class="menu-rapido-contenuto"></div>
+    </div>
+
+    <div id="rapido-disegna-pannello" class="menu-rapido" hidden>
+      <button type="button" class="menu-rapido-chiudi" aria-label="Chiudi">&#215;</button>
+      <div class="menu-rapido-contenuto"></div>
+    </div>
+
+    <!-- Misure e azioni, compatte, mentre si disegna o con un'area attiva -->
+    <div id="barra-misure" hidden>
+      <div class="barra-valori">
+        <span><b id="b-area">&#8212;</b> superficie</span>
+        <span><b id="b-perimetro">&#8212;</b> perimetro</span>
+      </div>
+      <div class="barra-azioni">
+        <button type="button" id="barra-salva" class="primary">Salva</button>
+        <button type="button" id="barra-png">PNG</button>
+      </div>
+    </div>
+
+    <!-- Il pannello dal basso si apre da qui: serve solo per i salvati -->
+    <button type="button" id="maniglia-pannello" aria-expanded="false" aria-controls="sidebar">
+      <span class="maniglia-freccia" aria-hidden="true">&#9733;</span>
+      <span id="maniglia-testo">Aree salvate</span>
+    </button>
+
+    <!-- ===================== SIDEBAR ===================== -->
+    <aside id="sidebar">
+      <!-- × di chiusura, su mobile: come nei menu rapidi -->
+      <button type="button" id="chiudi-pannello" aria-label="Chiudi le aree salvate">&#215;</button>
+
+      <!-- Ricerca particella: il punto di partenza -->
+      <section class="panel">
+        <h2>Cerca particella</h2>
+        <div class="search-grid">
+          <label class="field wide">
+            <span>Regione</span>
+            <select id="ric-regione"></select>
+          </label>
+          <label class="field wide">
+            <span>Comune</span>
+            <input type="text" id="ric-comune" list="ric-suggerimenti" placeholder="es. Grosseto"
+                   autocomplete="off" spellcheck="false" />
+          </label>
+          <label class="field">
+            <span>Foglio</span>
+            <input type="text" id="ric-foglio" inputmode="numeric" placeholder="facoltativo"
+                   autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>Particella</span>
+            <input type="text" id="ric-particella" placeholder="facoltativo" autocomplete="off" />
+          </label>
+        </div>
+        <datalist id="ric-suggerimenti"></datalist>
+
+        <div class="btn-row" style="margin-top:10px">
+          <button type="button" id="ric-cerca" class="primary">Cerca sulla mappa</button>
+        </div>
+
+        <p class="hint small" id="ric-stato"></p>
+        <pre class="esito" id="ric-esito"></pre>
+      </section>
+
+      <!-- Disegno -->
+      <section class="panel">
+        <h2>Disegno</h2>
+        <div class="btn-row" id="draw-tools">
+          <button type="button" data-tool="Polygon">Poligono</button>
+          <button type="button" data-tool="Box">Rettangolo</button>
+          <button type="button" data-tool="Circle">Cerchio</button>
+        </div>
+        <div class="btn-row">
+          <button type="button" id="btn-modify">Modifica vertici</button>
+          <button type="button" id="btn-delete" class="danger">Elimina</button>
+        </div>
+        <p class="hint small" id="draw-hint"></p>
+      </section>
+
+      <!-- Misure ed esportazione -->
+      <section class="panel">
+        <h2>Misure</h2>
+        <div class="measure">
+          <div><span class="label">Superficie</span><strong id="m-area">—</strong></div>
+          <div><span class="label">Perimetro</span><strong id="m-perimeter">—</strong></div>
+          <div><span class="label">Vertici</span><strong id="m-vertices">—</strong></div>
+        </div>
+        <div class="btn-row" style="margin-top:10px">
+          <button type="button" id="btn-save" class="primary" disabled>Salva</button>
+          <button type="button" id="btn-download" disabled>Scarica PNG</button>
+        </div>
+      </section>
+
+      <!-- Aree salvate -->
+      <section class="panel">
+        <h2>Aree salvate <span class="badge" id="saved-count">0</span></h2>
+        <div class="saved-tools">
+          <input type="text" id="group-nuovo" class="saved-newgroup" placeholder="Nuovo gruppo…" />
+          <button type="button" id="btn-nuovo-gruppo" class="ghost">Crea gruppo</button>
+        </div>
+        <div class="saved-list" id="saved-list"></div>
+        <div class="btn-row">
+          <button type="button" id="btn-export-json">Esporta JSON</button>
+          <button type="button" id="btn-import-json">Importa JSON</button>
+          <button type="button" id="btn-clear-all" class="danger">Svuota</button>
+        </div>
+        <input type="file" id="import-file" accept="application/json,.json" hidden />
+      </section>
+
+      <footer class="attrib">
+        Dati: © Agenzia delle Entrate (CC BY 4.0) · © OpenStreetMap contributors · Imagery © Esri ·
+        Particelle: dati aperti OnData (CC BY 4.0)
+      </footer>
+    </aside>
+
+    <!-- ===================== MAPPA ===================== -->
+    <main id="map-wrap">
+      <div id="map"></div>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- Finestra di salvataggio: nome e gruppo, con Annulla che annulla davvero -->
+  <div class="modale" id="salva-modale" hidden>
+    <div class="modale-scatola" role="dialog" aria-modal="true" aria-labelledby="salva-titolo">
+      <h3 id="salva-titolo">Salva appezzamento</h3>
+
+      <label class="field">
+        <span>Nome</span>
+        <input type="text" id="salva-nome" autocomplete="off" />
+      </label>
+
+      <label class="field">
+        <span>Gruppo</span>
+        <select id="salva-gruppo"></select>
+      </label>
+
+      <label class="field" id="salva-nuovo-gruppo-campo" hidden>
+        <span>Nome del nuovo gruppo</span>
+        <input type="text" id="salva-nuovo-gruppo" autocomplete="off" />
+      </label>
+
+      <div class="btn-row">
+        <button type="button" id="salva-conferma" class="primary">Salva</button>
+        <button type="button" id="salva-annulla">Annulla</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/ol@10.10.0/dist/ol.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/measure.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/catasto.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/draw.js"></script>
+  <script src="js/export.js"></script>
+  <script src="js/ricerca.js"></script>
+  <script src="js/numeri.js"></script>
+  <script src="js/punto.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

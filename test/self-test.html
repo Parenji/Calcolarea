@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <title>SELFTEST-RUNNING</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.10.0/ol.css" />
+  <style>#map{position:relative;width:600px;height:400px}</style>
+</head>
+<body>
+  <div id="map"></div>
+  <pre id="results"></pre>
+  <div id="exported-data" style="display:none"></div>
+
+  <script>
+    /* Intercetta gli URL delle immagini richieste PRIMA che OpenLayers crei
+       i suoi <img>, per ispezionare la GetMap realmente generata. */
+    window.__captured = [];
+    (function () {
+      var desc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+      Object.defineProperty(HTMLImageElement.prototype, 'src', {
+        configurable: true,
+        get: desc.get,
+        set: function (value) {
+          if (typeof value === 'string' && value.indexOf('ows01.php') !== -1) {
+            window.__captured.push(value);
+          }
+          return desc.set.call(this, value);
+        }
+      });
+    })();
+
+    /* Solo per il test: intercetta il PNG prodotto dall'export per poterlo
+       mostrare nella pagina, e disattiva l'avvio del download. */
+    window.__exportedUrl = null;
+    window.__exportedBlob = null;
+    (function () {
+      var original = URL.createObjectURL;
+      URL.createObjectURL = function (blob) {
+        var url = original.call(URL, blob);
+        if (blob && blob.type === 'image/png') {
+          window.__exportedUrl = url;
+          window.__exportedBlob = blob;
+        }
+        return url;
+      };
+      HTMLAnchorElement.prototype.click = function () {};
+    })();
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/ol@10.10.0/dist/ol.js"></script>
+  <script src="../js/config.js"></script>
+  <script src="../js/measure.js"></script>
+  <script src="../js/store.js"></script>
+  <script src="../js/catasto.js"></script>
+  <script src="../js/map.js"></script>
+  <script src="../js/draw.js"></script>
+  <script src="../js/export.js"></script>
+  <script src="../js/ricerca.js"></script>
+
+  <script>
+    var results = [];
+    function paint() {
+      document.getElementById('results').textContent = results.join('\n');
+    }
+    function check(name, fn) {
+      try {
+        var outcome = fn();
+        results.push((outcome === true ? 'PASS' : 'FAIL: ' + outcome) + ' | ' + name);
+      } catch (err) {
+        results.push('FAIL(' + err.name + '): ' + err.message + ' | ' + name);
+      }
+      paint();
+    }
+    function approx(actual, expected, tol) {
+      var diff = (Math.abs(actual - expected) / Math.abs(expected)) * 100;
+      return diff <= tol
+        ? true
+        : 'scarto ' + diff.toFixed(2) + '% (' + actual + ' vs ' + expected + ')';
+    }
+    function report() {
+      results.push('DONE');
+      paint();
+      document.title = 'SELFTEST-DONE';
+    }
+
+    window.Campagna.store.clear();
+
+    var map = Campagna.map.init('map', {});
+    Campagna.draw.init(map, Campagna.map.getVectorSource(), {});
+
+    // Vista sull'area di prova, a zoom sufficiente per le particelle catastali
+    map.getView().setCenter(ol.proj.fromLonLat([11.105, 42.755]));
+    map.getView().setZoom(19);
+
+    // Il catasto è spento di default: attiviamolo per il test
+    Campagna.catasto.setEnabled('particelle', true);
+
+    check('EPSG:4258 registrata e trasformabile verso EPSG:3857', function () {
+      if (!ol.proj.get('EPSG:4258')) return 'proiezione assente';
+      if (!ol.proj.getTransform('EPSG:4258', 'EPSG:3857')) return '4258 -> 3857 assente';
+      if (!ol.proj.getTransform('EPSG:3857', 'EPSG:4258')) return '3857 -> 4258 assente';
+
+      // Controllo di coerenza: un punto noto deve finire dove ci si aspetta
+      // (Grosseto, ~11,1 E / 42,75 N) una volta riproiettato.
+      var projected = ol.proj.transform([11.1, 42.75], 'EPSG:4258', 'EPSG:3857');
+      var expected = ol.proj.fromLonLat([11.1, 42.75]);
+      if (Math.abs(projected[0] - expected[0]) > 1 || Math.abs(projected[1] - expected[1]) > 1) {
+        return 'punto riproiettato in modo incoerente: ' + projected;
+      }
+      return true;
+    });
+
+    // Area geodetica contro una formula indipendente:
+    // area sferica di un rettangolo lon/lat = R^2 * dLon * (sin lat2 - sin lat1)
+    var R = 6371008.8;
+    var lon1 = 11.09, lon2 = 11.12, lat1 = 42.74, lat2 = 42.77;
+    var expectedArea =
+      R * R * ((lon2 - lon1) * Math.PI / 180) *
+      (Math.sin(lat2 * Math.PI / 180) - Math.sin(lat1 * Math.PI / 180));
+
+    var polygon = new ol.geom.Polygon([[
+      ol.proj.fromLonLat([lon1, lat1]),
+      ol.proj.fromLonLat([lon2, lat1]),
+      ol.proj.fromLonLat([lon2, lat2]),
+      ol.proj.fromLonLat([lon1, lat2]),
+      ol.proj.fromLonLat([lon1, lat1])
+    ]]);
+
+    var misure = Campagna.measure.describe(polygon);
+
+    check('superficie geodetica entro 0,5% dalla formula indipendente', function () {
+      return approx(misure.areaM2, expectedArea, 0.5);
+    });
+
+    check('perimetro del rettangolo', function () {
+      // 0,03° di latitudine ~ 3.334 m ; 0,03° di longitudine a 42,75° ~ 2.452 m
+      // perimetro atteso = 2 * (3334 + 2452) ~ 11572 m
+      return approx(misure.perimeterM, 11572, 2);
+    });
+
+    check('numero di vertici', function () {
+      return misure.vertices === 4 ? true : 'attesi 4, trovati ' + misure.vertices;
+    });
+
+    check('centroide in lon/lat corretti', function () {
+      if (!misure.centroid) return 'centroide nullo';
+      return Math.abs(misure.centroid[0] - 11.105) < 0.01 &&
+        Math.abs(misure.centroid[1] - 42.755) < 0.01
+        ? true
+        : 'centroide fuori posto: ' + misure.centroid;
+    });
+
+    check('formattazione m2 / ha / km2', function () {
+      var a = Campagna.measure.formatArea(500);
+      var b = Campagna.measure.formatArea(15000);
+      var c = Campagna.measure.formatArea(2500000);
+      if (a !== '500 m²') return 'm2 inatteso: ' + a;
+      if (b !== '1,5 ha') return 'ha inatteso: ' + b;
+      if (c !== '2,5 km²') return 'km2 inatteso: ' + c;
+      return true;
+    });
+
+    check('cerchio misurato sulla superficie reale (fattore di scala Mercator)', function () {
+      // ol.geom.Circle ha il raggio in metri di EPSG:3857: alla latitudine di
+      // prova il raggio a terra e 500 * cos(lat) ~ 367 m, quindi l'area reale
+      // e circa pi * 367^2 ~ 423.000 m2, non pi * 500^2.
+      var latRad = 42.75 * Math.PI / 180;
+      var groundRadius = 500 * Math.cos(latRad);
+      var expected = Math.PI * groundRadius * groundRadius;
+
+      var circle = new ol.geom.Circle(ol.proj.fromLonLat([11.1, 42.75]), 500);
+      var m = Campagna.measure.describe(circle);
+      if (m.areaM2 == null) return 'area nulla per il cerchio';
+
+      var ratio = m.areaM2 / expected;
+      return ratio > 0.95 && ratio < 1.05 ? true : 'rapporto area atteso/ottenuto ' + ratio.toFixed(4);
+    });
+
+    check('indirizzo di sfondo coerente', function () {
+      Campagna.map.setBase('satellite');
+      if (Campagna.map.getBaseName() !== 'Satellite') return 'nome sfondo errato';
+      Campagna.map.setBase('street');
+      return Campagna.map.getBaseName() === 'Mappa' ? true : 'ritorno allo sfondo mappa fallito';
+    });
+
+    // --------------------- verifiche asincrone ---------------------------
+    // Verifiche asincrone: prima si controlla che il browser sappia davvero
+    // caricare la GetMap dal nostro dominio, poi tutto il resto.
+    window.__final = function () {
+      var target = window.__captured[0] || '/catasto/ows01.php';
+
+      fetch(target, { method: 'GET' })
+        .then(function (response) {
+          check('il browser carica la GetMap catastale dal proxy (same-origin)', function () {
+            if (!response.ok) return 'HTTP ' + response.status;
+            var type = response.headers.get('content-type') || '';
+            if (type.indexOf('image/png') === -1) return 'content-type inatteso: ' + type;
+            return true;
+          });
+        })
+        .catch(function (err) {
+          check('il browser carica la GetMap catastale dal proxy (same-origin)', function () {
+            return 'errore di rete: ' + err.message;
+          });
+        })
+        .then(function () {
+          window.__finalBody();
+        });
+    };
+
+    window.__finalBody = function () {
+      var group = Campagna.map.getCatastoGroup();
+      var info = group.getLayers().getArray().map(function (layer) {
+        return (layer.get('catastoKey') || '?') + ':vis=' + layer.getVisible() + ',op=' + layer.getOpacity();
+      }).join(' ');
+      results.push(
+        'STAGE: WMS catturate = ' + window.__captured.length +
+        ' | risoluzione = ' + map.getView().getResolution().toFixed(4) +
+        ' | zoom = ' + map.getView().getZoom().toFixed(2) +
+        ' | layer -> ' + info
+      );
+      paint();
+
+      if (window.__captured.length) {
+        results.push('URL GetMap: ' + window.__captured[0].slice(0, 260));
+        paint();
+      }
+
+      check('round-trip nel salvataggio locale (geometria e area)', function () {
+        var feature = new ol.Feature({ geometry: polygon.clone() });
+        var record = Campagna.store.createFromFeature(feature, { name: 'Test' });
+        Campagna.store.add(record);
+
+        var saved = Campagna.store.all();
+        if (saved.length !== 1) return 'record non salvato';
+
+        var back = Campagna.store.toFeature(saved[0]);
+        if (!back) return 'feature non ricostruita';
+
+        return approx(Campagna.measure.areaM2(back.getGeometry()), misure.areaM2, 0.01);
+      });
+
+      check('export/import JSON', function () {
+        var text = JSON.stringify({ app: 'campagna-ai', parcels: Campagna.store.all() });
+        Campagna.store.importJson(text);
+        return Campagna.store.all().length === 1 ? true : 'numero record inatteso';
+      });
+
+      check('GetMap generata da OpenLayers: SRS=EPSG:4258 e BBOX in lon,lat', function () {
+        if (!window.__captured.length) return 'nessuna richiesta WMS catturata';
+        var url = window.__captured[window.__captured.length - 1];
+        if (url.indexOf('SRS=EPSG%3A4258') === -1) return 'SRS assente: ' + url;
+
+        var match = url.match(/BBOX=([^&]+)/);
+        if (!match) return 'BBOX assente';
+
+        var bbox = decodeURIComponent(match[1]).split(',').map(Number);
+        // con l'ordine lat,lon il primo valore sarebbe ~42 e il secondo ~11
+        if (!(bbox[0] > 5 && bbox[0] < 20)) {
+          return 'primo valore non e una longitudine italiana: ' + bbox;
+        }
+        if (!(bbox[1] > 35 && bbox[1] < 48)) {
+          return 'secondo valore non e una latitudine italiana: ' + bbox;
+        }
+        return true;
+      });
+
+      // ------------- regressione: limite di 2048 px del servizio -----------
+      // Con una mappa larga OpenLayers chiede alla WMS un'immagine più larga
+      // della mappa stessa; oltre 2048 px il servizio catastale risponde con
+      // una ServiceException XML che OpenLayers non sa decodificare, e il
+      // catasto sparisce del tutto — a qualunque zoom, senza errori visibili.
+      // Qui si allarga la mappa a 2400 px per riprodurre esattamente il caso.
+      var giaCatturate = window.__captured.length;
+      var mapEl = document.getElementById('map');
+      mapEl.style.width = '2400px';
+      map.setSize([2400, 400]);
+      Campagna.catasto.setEnabled('particelle', true);
+      map.getView().setZoom(18);
+      map.renderSync();
+
+      var attesaLarga = 0;
+      var pollLarga = setInterval(function () {
+        attesaLarga += 250;
+        var nuove = window.__captured.slice(giaCatturate);
+
+        if (!nuove.length && attesaLarga <= 12000) return;
+        clearInterval(pollLarga);
+
+        check('mappa larga 2400 px: GetMap entro il limite di 2048 px del servizio', function () {
+          if (!nuove.length) return 'nessuna GetMap generata con la mappa larga';
+
+          var fuoriLimite = nuove.filter(function (url) {
+            var w = /[?&]WIDTH=(\d+)/i.exec(url);
+            var h = /[?&]HEIGHT=(\d+)/i.exec(url);
+            if (!w || !h) return true;
+            return Number(w[1]) > 2048 || Number(h[1]) > 2048;
+          });
+
+          if (fuoriLimite.length) {
+            return 'richiesta oltre il limite: ' + decodeURIComponent(fuoriLimite[0]).slice(0, 220);
+          }
+          return true;
+        });
+
+        results.push(
+          'STAGE: mappa da 2400 px -> GetMap ' +
+          (function () {
+            var u = nuove[nuove.length - 1] || '';
+            var w = /[?&]WIDTH=(\d+)/i.exec(u);
+            var h = /[?&]HEIGHT=(\d+)/i.exec(u);
+            return w && h ? w[1] + 'x' + h[1] : '(nessuna)';
+          })()
+        );
+        paint();
+
+        // Si torna alla mappa piccola, com'era prima del test.
+        mapEl.style.width = '600px';
+        map.setSize([600, 400]);
+        map.renderSync();
+
+        window.__verifySearch().then(function () {
+          window.__exportBody();
+        });
+      }, 250);
+    };
+
+    /**
+     * Ricerca di una particella reale: legge i dati aperti OnData via HTTP
+     * Range. Verifica le coordinate di Grosseto foglio 87 particella 888,
+     * note perché il servizio WFS le conferma (E202_0087D0.888).
+     */
+    window.__verifySearch = function () {
+      var nome = 'ricerca particella: E202 foglio 87 particella 888';
+      return Campagna.ricerca
+        .risolvi('E202', '87', '888')
+        .then(function (trovata) {
+          check(nome, function () {
+            if (!trovata) return 'particella non trovata';
+            if (Math.abs(trovata.lat - 42.750394) > 1e-5) return 'latitudine inattesa: ' + trovata.lat;
+            if (Math.abs(trovata.lon - 11.100643) > 1e-5) return 'longitudine inattesa: ' + trovata.lon;
+            return true;
+          });
+          results.push(
+            'STAGE: ricerca risolta in ' + trovata.lat.toFixed(6) + ', ' + trovata.lon.toFixed(6)
+          );
+          paint();
+        })
+        .catch(function (err) {
+          check(nome, function () {
+            return 'errore: ' + err.message;
+          });
+        });
+    };
+
+    window.__exportBody = function () {
+      // Pipeline di esportazione completa: composizione canvas + toBlob.
+      // È il test decisivo: se il catasto sporcasse il canvas, toBlob
+      // lancerebbe SecurityError e questo controllo fallirebbe.
+      //
+      // Gli sfondi a rete (OSM/Esri) vengono nascosti per rendere il test
+      // rapido e deterministico: ciò che conta è che resti visibile il layer
+      // catastale, che è servito dal nostro dominio.
+      map.getLayers().getArray().forEach(function (layer) {
+        if (layer.get('key')) layer.setVisible(false);
+      });
+      Campagna.map.getLabelsLayer().setVisible(false);
+      map.renderSync();
+
+      var feature = Campagna.store.toFeature(Campagna.store.all()[0]);
+      Campagna.draw.addFeature(feature);
+
+      Campagna.exporter
+        .download({
+          map: map,
+          feature: feature,
+          misure: Campagna.measure.describe(feature.getGeometry()),
+          name: 'Test export',
+          baseName: 'Mappa',
+          catastoLabels: ['Particelle catastali (85%)']
+        })
+        .then(function (size) {
+          check('immagine PNG generata, canvas non sporcato', function () {
+            return size > 2000 ? true : 'file troppo piccolo: ' + size + ' byte';
+          });
+        })
+        .catch(function (err) {
+          check('immagine PNG generata, canvas non sporcato', function () {
+            return 'errore: ' + err.message;
+          });
+        })
+        .then(function () {
+          // Rende ispezionabile il PNG esportato: data URL nel DOM, così può
+          // essere estratto e analizzato da fuori.
+          if (window.__exportedBlob) {
+            var reader = new FileReader();
+            reader.onload = function () {
+              document.getElementById('exported-data').textContent = String(reader.result);
+              results.push('STAGE: PNG esportato esposto come data URL');
+              paint();
+              report();
+            };
+            reader.onerror = function () {
+              results.push('STAGE: lettura del blob esportato non riuscita');
+              report();
+            };
+            reader.readAsDataURL(window.__exportedBlob);
+          } else {
+            results.push('STAGE: nessun blob PNG intercettato');
+            report();
+          }
+        });
+    };
+
+    // Attende che la GetMap catastale sia realmente partita (max 12 s)
+    var elapsed = 0;
+    var poll = setInterval(function () {
+      elapsed += 200;
+      if (window.__captured.length || elapsed > 12000) {
+        clearInterval(poll);
+        window.__final();
+      }
+    }, 200);
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/catasto/:resource",
+      "destination": "https://wms.cartografia.agenziaentrate.gov.it/inspire/wms/:resource"
+    },
+    {
+      "source": "/wfs/:resource",
+      "destination": "https://wfs.cartografia.agenziaentrate.gov.it/inspire/wfs/:resource"
+    }
+  ]
+}

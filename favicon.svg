@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="CALCOLAREA">
+  <title>CALCOLAREA</title>
+  <defs>
+    <linearGradient id="campo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f9a63"/>
+      <stop offset="1" stop-color="#256940"/>
+    </linearGradient>
+  </defs>
+
+  <!-- piastrella -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#campo)"/>
+
+  <!-- appezzamento: contorno chiaro, leggermente irregolare come un campo vero -->
+  <path d="M14 40 L18 20 L30 15 L46 19 L50 33 L43 47 L27 50 Z"
+        fill="rgba(255,255,255,0.16)"
+        stroke="#ffffff" stroke-width="3" stroke-linejoin="round"/>
+
+  <!-- i due vertici misurati -->
+  <circle cx="18" cy="20" r="3.4" fill="#ffffff"/>
+  <circle cx="50" cy="33" r="3.4" fill="#ffffff"/>
+
+  <!-- la misura fra i due vertici -->
+  <path d="M18 20 L50 33" stroke="#ffffff" stroke-width="2.2"
+        stroke-dasharray="4 4" stroke-linecap="round" opacity="0.9"/>
+</svg>
