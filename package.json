@@ -1,8 +1,8 @@
 {
-  "name": "campagna-ai",
+  "name": "calcolarea",
   "version": "0.1.0",
   "private": true,
-  "description": "Web app per disegnare appezzamenti su mappa e satellite, calcolarne superficie e perimetro, sovrapporre la cartografia catastale italiana ed esportare un'immagine PNG con i dati.",
+  "description": "CALCOLAREA — appezzamenti, superfici e catasto: disegna un'area sulla mappa, leggine superficie e perimetro, cerca le particelle catastali, salva ed esporta.",
   "scripts": {
     "dev": "node scripts/dev-proxy.js"
   },

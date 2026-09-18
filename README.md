@@ -1,4 +1,4 @@
-# Campagna AI
+# CALCOLAREA
 
 Web app per **disegnare appezzamenti di terreno** su mappa o vista satellitare, leggerne
 **superficie e perimetro**, sovrapporre la **cartografia catastale italiana** ed esportare
@@ -542,3 +542,29 @@ esposto come data URL in `<div id="exported-data">`, così è ispezionabile dall
 - **Export aggiuntivi** (GeoJSON, KML, PDF) e stampa in scala.
 - **Ricerca per indirizzo** (Nominatim) per inquadrare rapidamente una zona.
 - **Gestione multi-particella** con somma automatica delle superfici.
+
+## Pubblicazione
+
+Il sito è statico: nessun bundler, nessuna build. Su Vercel vengono pubblicati
+direttamente i file del repository, e gli inoltri `/catasto/*` e `/wfs/*` sono
+dichiarati in `vercel.json` (così le immagini del catasto arrivano dalla stessa
+origine e restano leggibili dal canvas, senza il problema del canvas "sporco").
+
+```bash
+# prima volta
+npx vercel login
+npx vercel --prod          # pubblica; il progetto prende il nome "calcolarea"
+
+# dalle volte successive
+npx vercel --prod
+```
+
+Per pubblicare da GitHub: crea un repository vuoto, poi
+
+```bash
+git remote add origin git@github.com:UTENTE/calcolarea.git
+git push -u origin main
+```
+
+e su Vercel «Add New → Project → Import Git Repository» scegliendo il repository:
+framework preset **Other**, build command vuoto, output directory `.`.
