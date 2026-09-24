@@ -604,12 +604,19 @@ Campagna.ricerca = (function () {
             esempio.particella + '. Carico il contorno…'
         );
 
+        if (els.pulisci) els.pulisci.hidden = false;
+
         return caricaContorno(esempio.lat, esempio.lon, comune[1], esempio.foglio, esempio.particella)
           .then(function (contorno) {
+            var mq = areaDelContorno(contorno);
             if (els.esito) {
               els.esito.textContent =
                 comune[0] + ' (' + comune[3] + ')\nfoglio ' + Number(esempio.foglio) +
                 ' · particella ' + esempio.particella +
+                (mq
+                  ? '\nsuperficie ' + Campagna.measure.formatArea(mq) +
+                    '  (' + Math.round(mq).toLocaleString('it-IT') + ' m²)'
+                  : '') +
                 '\n' + esempio.lat.toFixed(6) + '°, ' + esempio.lon.toFixed(6) + '°' +
                 (contorno ? '\ncontorno caricato dal WFS' : '\ncontorno non disponibile');
             }
@@ -636,6 +643,7 @@ Campagna.ricerca = (function () {
    */
   function inquadra(comune, trovato, filtro) {
     if (sorgente) sorgente.clear();
+    if (els.pulisci) els.pulisci.hidden = false;
 
     var bbox = trovato.bbox;
     if (isFinite(bbox[0]) && isFinite(bbox[1])) {
@@ -679,6 +687,32 @@ Campagna.ricerca = (function () {
 
   // --------------------------------------------------------------------- avvio
 
+  /**
+   * Superficie di un contorno, in metri quadri. Si misura sulla sfera, così
+   * il numero non dipende dalla proiezione con cui è disegnato.
+   */
+  function areaDelContorno(contorno) {
+    if (!contorno) return null;
+
+    var geometria = contorno.getGeometry ? contorno.getGeometry() : contorno;
+    if (!geometria) return null;
+
+    try {
+      var mq = ol.sphere.getArea(geometria, { projection: 'EPSG:3857' });
+      return isFinite(mq) && mq > 0 ? mq : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  /** Toglie l'evidenziazione dalla mappa: ricerca annullata. */
+  function pulisciEvidenza() {
+    if (sorgente) sorgente.clear();
+    if (els.esito) els.esito.textContent = '';
+    if (els.pulisci) els.pulisci.hidden = true;
+    stato('Ricerca annullata.');
+  }
+
   function init(olMap) {
     map = olMap;
 
@@ -690,7 +724,9 @@ Campagna.ricerca = (function () {
       particella: document.getElementById('ric-particella'),
       cerca: document.getElementById('ric-cerca'),
       stato: document.getElementById('ric-stato'),
-      esito: document.getElementById('ric-esito')
+      esito: document.getElementById('ric-esito'),
+
+      pulisci: document.getElementById('ric-pulisci')
     };
 
     if (!els.cerca) return;
@@ -1133,6 +1169,16 @@ Campagna.ricerca = (function () {
   return {
     init: init,
     cerca: cerca,
+    pulisci: pulisciEvidenza,
+    areaDelContorno: areaDelContorno,
+
+    /**
+     * Contorno di una particella, chiesto al WFS a partire da un punto che le
+     * sta dentro. Serve al popup per misurarne la superficie.
+     */
+    contornoParticella: function (lat, lon, codice, foglio, particella) {
+      return caricaContorno(lat, lon, codice, foglio, particella);
+    },
     nomeComune: nomeComune,
     particelleNellArea: particelleNellArea,
 

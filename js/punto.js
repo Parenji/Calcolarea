@@ -327,6 +327,41 @@ Campagna.punto = (function () {
           righe.push(rigaCoordinate(lon, lat));
 
           mostra(coord, { titolo: '', righe: righe });
+
+          // La superficie della particella si misura sul contorno, che arriva
+          // dal WFS: qualche secondo, quindi si aggiunge quando è pronta.
+          if (!particella || !codice || !Campagna.ricerca.contornoParticella) return;
+
+          var attesaArea = document.createElement('div');
+          attesaArea.className = 'punto-riga punto-attesa';
+          attesaArea.textContent = 'Superficie: lettura\u2026';
+          scheda.appendChild(attesaArea);
+
+          Campagna.ricerca
+            .contornoParticella(lat, lon, codice, foglio, particella)
+            .then(function (contorno) {
+              if (overlay.getPosition() !== coord || !scheda.contains(attesaArea)) return;
+              scheda.removeChild(attesaArea);
+
+              var mq = Campagna.ricerca.areaDelContorno(contorno);
+              if (!mq) {
+                scheda.appendChild(riga('Superficie', 'non disponibile'));
+                return;
+              }
+              scheda.appendChild(
+                riga(
+                  'Superficie',
+                  Campagna.measure.formatArea(mq) +
+                    '  (' + Math.round(mq).toLocaleString('it-IT') + ' m²)'
+                )
+              );
+            })
+            .catch(function () {
+              if (scheda.contains(attesaArea)) {
+                scheda.removeChild(attesaArea);
+                scheda.appendChild(riga('Superficie', 'non disponibile'));
+              }
+            });
         });
       });
     });

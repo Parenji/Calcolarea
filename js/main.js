@@ -700,6 +700,7 @@ Campagna.main = (function () {
       barraPerimetro: document.getElementById('b-perimetro'),
       barraSalva: document.getElementById('barra-salva'),
       barraPng: document.getElementById('barra-png'),
+      ricPulisci: document.getElementById('ric-pulisci'),
       clearAll: document.getElementById('btn-clear-all'),
       nuovoGruppo: document.getElementById('group-nuovo'),
       creaGruppo: document.getElementById('btn-nuovo-gruppo')
@@ -958,6 +959,13 @@ Campagna.main = (function () {
     if (els.barraPng) {
       els.barraPng.addEventListener('click', function () {
         document.getElementById('btn-download').click();
+      });
+    }
+
+    if (els.ricPulisci) {
+      els.ricPulisci.addEventListener('click', function () {
+        Campagna.ricerca.pulisci();
+        els.ricPulisci.hidden = true;
       });
     }
 
