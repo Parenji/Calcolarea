@@ -120,7 +120,11 @@ Campagna.draw = (function () {
       activeFeature = feature;
 
       // il lato dritto diventa il tratto di confine vero, se il modo è acceso
-      aderisciAiConfini(feature);
+      try {
+        aderisciAiConfini(feature);
+      } catch (err) {
+        console.error('[disegno] aderenza ai confini non riuscita', err);
+      }
 
       removeDrawInteraction();
       refreshFeature(feature);
@@ -356,6 +360,23 @@ Campagna.draw = (function () {
     return distanza(p, [a[0] + t * dx, a[1] + t * dy]);
   }
 
+  /**
+   * Rimette nella sorgente le particelle già lette, perché la calamita le
+   * registri di nuovo: l'aggancio impara i contorni quando vengono aggiunti,
+   * e riagganciare l'interazione azzera quell'elenco.
+   */
+  function ripassaAllaCalamita() {
+    if (!sorgenteCatasto) return;
+    var presenti = sorgenteCatasto.getFeatures();
+    if (!presenti.length) return;
+
+    var copia = presenti.slice();
+    sorgenteCatasto.clear();
+    copia.forEach(function (feature) {
+      sorgenteCatasto.addFeature(feature);
+    });
+  }
+
   function aggancioCatasto(attivo) {
     if (!map) return;
     var interazione = preparaAggancio();
@@ -367,6 +388,12 @@ Campagna.draw = (function () {
       // altrimenti è il disegno a consumarli e non si aggancia nulla.
       if (presenti.indexOf(interazione) !== -1) map.removeInteraction(interazione);
       map.addInteraction(interazione);
+
+      // Riagganciarla la scollega dalle particelle che aveva in memoria:
+      // senza questo passaggio la calamita resta senza niente su cui far
+      // presa, e la modalità «segui i confini» non trova nessuna linea.
+      ripassaAllaCalamita();
+
       caricaContorniAggancio(false);
     } else if (presenti.indexOf(interazione) !== -1) {
       map.removeInteraction(interazione);
