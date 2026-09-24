@@ -124,6 +124,9 @@ Campagna.draw = (function () {
     });
 
     map.addInteraction(drawInteraction);
+
+    // lo strumento appena creato sta in fondo: la calamita va rimessa dopo
+    aggancioCatasto(true);
     activeTool = tool;
     if (hooks.onToolChange) hooks.onToolChange(tool);
   }
@@ -201,7 +204,11 @@ Campagna.draw = (function () {
     var presenti = map.getInteractions().getArray();
 
     if (attivo) {
-      if (presenti.indexOf(interazione) === -1) map.addInteraction(interazione);
+      // Sempre in fondo alla pila: le interazioni ricevono i movimenti in
+      // ordine, e la calamita deve vederli DOPO lo strumento di disegno,
+      // altrimenti è il disegno a consumarli e non si aggancia nulla.
+      if (presenti.indexOf(interazione) !== -1) map.removeInteraction(interazione);
+      map.addInteraction(interazione);
       caricaContorniAggancio(false);
     } else if (presenti.indexOf(interazione) !== -1) {
       map.removeInteraction(interazione);
@@ -264,6 +271,9 @@ Campagna.draw = (function () {
     });
 
     map.addInteraction(modifyInteraction);
+
+    // come per il disegno: la calamita deve restare l'ultima
+    aggancioCatasto(true);
     if (hooks.onToolChange) hooks.onToolChange('Modify');
   }
 
