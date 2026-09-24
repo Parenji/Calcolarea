@@ -957,6 +957,55 @@ Campagna.ricerca = (function () {
       });
   }
 
+  /**
+   * I contorni delle particelle che coprono un'area, senza numeri né conteggi:
+   * servono alla calamita che aggancia i vertici alle linee catastali.
+   *
+   * Si leggono i riquadri che il servizio accetta, con la stessa insistenza
+   * usata per l'elenco dell'area: se il servizio rifiuta, si ritenta spostando
+   * il riquadro di qualche metro.
+   */
+  function contorniParticelle(geometria3857) {
+    var areaGradi = geometria3857.clone().transform('EPSG:3857', 'EPSG:4326');
+    var extent = areaGradi.getExtent();
+
+    var passoLat = 900 / 110574;
+    var passoLon = 3000 / 81752;
+    var riquadri = [];
+
+    for (var lat = extent[1]; lat < extent[3]; lat += passoLat) {
+      for (var lon = extent[0]; lon < extent[2]; lon += passoLon) {
+        var lat1 = Math.min(lat + passoLat, extent[3]);
+        var lon1 = Math.min(lon + passoLon, extent[2]);
+        riquadri.push([lat, lon, lat1, lon1]);
+      }
+    }
+
+    if (!riquadri.length) return Promise.resolve([]);
+
+    return Promise.all(
+      riquadri.map(function (r) {
+        return wfsRiquadro(r[0], r[1], r[2], r[3]).catch(function () {
+          var scarto = 0.00003;
+          return wfsRiquadro(r[0] - scarto, r[1] - scarto, r[2] + scarto, r[3] + scarto);
+        });
+      })
+    )
+      .then(function (risposte) {
+        var poligoni = [];
+        risposte.forEach(function (testo) {
+          particelleDaGml(testo).forEach(function (particella) {
+            if (particella.geometria) poligoni.push(particella.geometria);
+          });
+        });
+        return poligoni;
+      })
+      .catch(function () {
+        // senza contorni si disegna come prima: nessun aggancio, nessun errore
+        return [];
+      });
+  }
+
   /** Chiede al WFS le particelle di un riquadro (assi lat,lon). */
   function wfsRiquadro(sud, ovest, nord, est) {
     var url =
@@ -1171,6 +1220,7 @@ Campagna.ricerca = (function () {
     cerca: cerca,
     pulisci: pulisciEvidenza,
     areaDelContorno: areaDelContorno,
+    contorniParticelle: contorniParticelle,
 
     /**
      * Contorno di una particella, chiesto al WFS a partire da un punto che le

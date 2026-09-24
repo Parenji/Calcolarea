@@ -53,7 +53,7 @@ Campagna.main = (function () {
   }
 
   var HINTS = {
-    Polygon: 'Clicca i vertici sulla mappa. Doppio clic (o Invio) per chiudere il poligono.',
+    Polygon: 'Clicca i vertici uno per uno; i vertici si agganciano da soli alle linee catastali. Doppio clic o Invio per chiudere.',
     Box: 'Tieni premuto e trascina per disegnare il rettangolo.',
     Circle: 'Clicca il centro, poi clicca (o trascina) per definire il raggio.',
     Modify: 'Trascina un vertice per spostarlo, toccalo senza trascinare per eliminarlo. I numeri si aggiornano da soli.',

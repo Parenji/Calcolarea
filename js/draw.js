@@ -133,6 +133,81 @@ Campagna.draw = (function () {
   /** Forma del poligono all'inizio di un trascinamento di vertici. */
   var formaAllInizio = null;
 
+  /** Contorni delle particelle, usati come calamita per i vertici. */
+  var sorgenteCatasto = null;
+  var snapCatasto = null;
+  var zonaAggancio = null;
+
+  /**
+   * Accende la calamita sulle linee catastali.
+   *
+   * I contorni arrivano dal WFS: si chiedono per la zona inquadrata, in
+   * sottofondo, e restano finché non ci si sposta. Con la calamita accesa un
+   * vertice posato a pochi pixel da una linea catastale — o da un suo vertice —
+   * ci si appoggia esattamente, invece di restare fuori di un pezzetto.
+   */
+  function preparaAggancio() {
+    if (!sorgenteCatasto) {
+      sorgenteCatasto = new ol.source.Vector();
+      snapCatasto = new ol.interaction.Snap({
+        source: sorgenteCatasto,
+        pixelTolerance: 12,
+        // anche lungo i lati, non solo sui vertici: è quello che serve per
+        // seguire un confine catastale
+        edge: true
+      });
+    }
+    return snapCatasto;
+  }
+
+  function caricaContorniAggancio(adesso) {
+    if (!map || !Campagna.ricerca || !Campagna.ricerca.contorniParticelle) return;
+
+    var vista = map.getView();
+    var zoom = vista.getZoom();
+    if (zoom == null || zoom < 15) {
+      if (sorgenteCatasto) sorgenteCatasto.clear();
+      zonaAggancio = null;
+      return;
+    }
+
+    var extent = vista.calculateExtent(map.getSize());
+    var chiave = extent
+      .map(function (valore) {
+        return Math.round(valore / 40);
+      })
+      .join(',');
+
+    if (!adesso && chiave === zonaAggancio) return;
+    zonaAggancio = chiave;
+
+    Campagna.ricerca
+      .contorniParticelle(ol.geom.Polygon.fromExtent(extent))
+      .then(function (poligoni) {
+        if (!sorgenteCatasto) return;
+        sorgenteCatasto.clear();
+        poligoni.forEach(function (geometria) {
+          sorgenteCatasto.addFeature(new ol.Feature(geometria));
+        });
+      })
+      .catch(function () {
+        /* niente contorni: si disegna senza calamita */
+      });
+  }
+
+  function aggancioCatasto(attivo) {
+    if (!map) return;
+    var interazione = preparaAggancio();
+    var presenti = map.getInteractions().getArray();
+
+    if (attivo) {
+      if (presenti.indexOf(interazione) === -1) map.addInteraction(interazione);
+      caricaContorniAggancio(false);
+    } else if (presenti.indexOf(interazione) !== -1) {
+      map.removeInteraction(interazione);
+    }
+  }
+
   function setModify(enabled) {
     if (modifyInteraction) {
       map.removeInteraction(modifyInteraction);
@@ -202,6 +277,9 @@ Campagna.draw = (function () {
   var ultimaFineDisegno = 0;
 
   function setTool(tool) {
+    // la calamita serve solo mentre si mettono o si spostano vertici
+    aggancioCatasto(tool === 'Modify' || tool === 'Polygon' || tool === 'Box' || tool === 'Circle');
+
     if (tool === 'Modify') {
       removeDrawInteraction();
       setModify(true);
@@ -330,6 +408,12 @@ Campagna.draw = (function () {
     map.addInteraction(snapInteraction);
 
     // Click per selezionare un appezzamento (o per deselezionare).
+    // spostandosi, i contorni della nuova zona arrivano in sottofondo
+    map.on('moveend', function () {
+      if (!getTool()) return;
+      caricaContorniAggancio(false);
+    });
+
     map.on('singleclick', function (event) {
       if (getTool()) return; // durante disegno/modifica il click non seleziona
       var hit = map.forEachFeatureAtPixel(
@@ -352,6 +436,9 @@ Campagna.draw = (function () {
     init: init,
     setTool: setTool,
     getTool: getTool,
+    ricaricaContorniAggancio: function () {
+      caricaContorniAggancio(true);
+    },
     eliminaVerticeSotto: function (coordinate) {
       var indice = verticeSottoIlClic(coordinate);
       if (indice < 0) return false;
