@@ -701,6 +701,7 @@ Campagna.main = (function () {
       barraSalva: document.getElementById('barra-salva'),
       barraPng: document.getElementById('barra-png'),
       ricPulisci: document.getElementById('ric-pulisci'),
+      seguiConfini: document.getElementById('segui-confini'),
       clearAll: document.getElementById('btn-clear-all'),
       nuovoGruppo: document.getElementById('group-nuovo'),
       creaGruppo: document.getElementById('btn-nuovo-gruppo')
@@ -960,6 +961,13 @@ Campagna.main = (function () {
       els.barraPng.addEventListener('click', function () {
         document.getElementById('btn-download').click();
       });
+    }
+
+    if (els.seguiConfini) {
+      els.seguiConfini.addEventListener('change', function () {
+        Campagna.draw.impostaSeguiConfini(els.seguiConfini.checked);
+      });
+      Campagna.draw.impostaSeguiConfini(els.seguiConfini.checked);
     }
 
     if (els.ricPulisci) {

@@ -841,11 +841,42 @@ Campagna.ricerca = (function () {
   }
 
   /**
-   * Vero se le due geometrie si intersecano. Test esatto fra contorni: un
-   * vertice dentro l'altro, oppure due lati che si incrociano.
+   * Vero se le due geometrie si **sovrappongono** con una superficie vera.
+   *
+   * Toccarsi non basta: disegnando l'area esattamente lungo un confine
+   * catastale, la particella confinante ha in comune quel tratto di linea ma
+   * non ci sta dentro, e non va contata. Quindi:
+   *   1. un vertice di una dentro l'altra, ma ad almeno 5 cm dal confine;
+   *   2. oppure due lati che si incrociano davvero (non paralleli e sovrapposti).
    */
-  function geometrieSiIntersecano(a, b) {
+  function siSovrappongono(a, b) {
     if (!ol.extent.intersects(a.getExtent(), b.getExtent())) return false;
+
+    /** Vero se il punto sta dentro, ma non appoggiato al confine. */
+    function dentroConMargine(poligono, punto) {
+      if (!poligono.intersectsCoordinate(punto)) return false;
+      var vicino = poligono.getClosestPoint(punto);
+      if (!vicino) return true;
+      var dx = vicino[0] - punto[0];
+      var dy = vicino[1] - punto[1];
+      return Math.sqrt(dx * dx + dy * dy) > 0.05; // 5 cm
+    }
+
+    function orient(a1, b1, c1) {
+      var valore = (b1[0] - a1[0]) * (c1[1] - a1[1]) - (b1[1] - a1[1]) * (c1[0] - a1[0]);
+      if (Math.abs(valore) < 1e-9) return 0;
+      return valore > 0 ? 1 : 2;
+    }
+
+    /** Incrocio vero: i lati si attraversano, non si limitano a combaciare. */
+    function incrocioVero(p1, p2, p3, p4) {
+      var o1 = orient(p1, p2, p3);
+      var o2 = orient(p1, p2, p4);
+      var o3 = orient(p3, p4, p1);
+      var o4 = orient(p3, p4, p2);
+      if (o1 === 0 || o2 === 0 || o3 === 0 || o4 === 0) return false;
+      return o1 !== o2 && o3 !== o4;
+    }
 
     var anelliA = anelliDi(a);
     var anelliB = anelliDi(b);
@@ -855,14 +886,14 @@ Campagna.ricerca = (function () {
     for (i = 0; i < anelliA.length; i += 1) {
       var verticiA = anelliA[i].getCoordinates();
       for (j = 0; j < verticiA.length; j += 1) {
-        if (b.intersectsCoordinate(verticiA[j])) return true;
+        if (dentroConMargine(b, verticiA[j])) return true;
       }
     }
 
     for (i = 0; i < anelliB.length; i += 1) {
       var verticiB = anelliB[i].getCoordinates();
       for (j = 0; j < verticiB.length; j += 1) {
-        if (a.intersectsCoordinate(verticiB[j])) return true;
+        if (dentroConMargine(a, verticiB[j])) return true;
       }
     }
 
@@ -872,89 +903,13 @@ Campagna.ricerca = (function () {
         var primoB = anelliB[j].getCoordinates();
         for (var x = 0; x + 1 < primoA.length; x += 1) {
           for (var y = 0; y + 1 < primoB.length; y += 1) {
-            if (segmentiSiIncontrano(primoA[x], primoA[x + 1], primoB[y], primoB[y + 1])) {
-              return true;
-            }
+            if (incrocioVero(primoA[x], primoA[x + 1], primoB[y], primoB[y + 1])) return true;
           }
         }
       }
     }
 
     return false;
-  }
-
-  /**
-   * Sostituisce il numero di ogni particella con quello dei dati aperti,
-   * cercando il punto interno della particella dentro il contorno del servizio.
-   * Se per una particella non si trova nulla, resta il numero del servizio.
-   */
-  function correggiNumeri(particelle, comuni) {
-    if (!particelle.length || !comuni.length) return Promise.resolve(false);
-
-    return Promise.all(
-      comuni.map(function (codice) {
-        return puntiDelComune(codice).catch(function () {
-          return [];
-        });
-      })
-    ).then(function (elenchi) {
-      var punti = elenchi.reduce(function (tutti, elenco) {
-        return tutti.concat(elenco);
-      }, []);
-
-      if (!punti.length) return false;
-
-      // Le strade sono lunghe e strette: dentro il loro contorno può cadere il
-      // punto di un campo. Si accetta solo un punto dello stesso genere.
-      function strada(numero) {
-        return String(numero).indexOf('STRADA') === 0;
-      }
-
-      particelle.forEach(function (particella) {
-        if (!particella.geometria) return;
-        var genere = strada(particella.particella);
-        var trovato = null;
-
-        for (var i = 0; i < punti.length && !trovato; i += 1) {
-          if (strada(punti[i].numero) !== genere) continue;
-          var coord = ol.proj.fromLonLat([punti[i].lon, punti[i].lat]);
-          if (particella.geometria.intersectsCoordinate(coord)) trovato = punti[i];
-        }
-
-        if (trovato) particella.particella = trovato.numero;
-      });
-
-      return true;
-    }).catch(function () {
-      return false;
-    });
-  }
-
-  /**
-   * Tutte le particelle di un comune, con numero e punto interno. Si legge una
-   * volta per comune e resta in memoria.
-   */
-  function puntiDelComune(codice) {
-    if (puntiPerComune[codice]) return Promise.resolve(puntiPerComune[codice]);
-
-    return Promise.all([caricaLibrerie(), apriIndice()])
-      .then(function (esiti) {
-        var lib = esiti[0];
-        var file = esiti[1][codice];
-        if (!file) throw new Error('comune non presente nell\'archivio: ' + codice);
-        return leggiPunti(lib, ARCHIVIO + file, codice);
-      })
-      .then(function (punti) {
-        // si tengono in memoria gli ultimi comuni letti: le particelle di un
-        // comune sono decine di migliaia, non si possono accumulare tutti
-        ordineComuni.push(codice);
-        while (ordineComuni.length > MAX_COMUNI) {
-          var vecchio = ordineComuni.shift();
-          if (vecchio !== codice) delete puntiPerComune[vecchio];
-        }
-        puntiPerComune[codice] = punti;
-        return punti;
-      });
   }
 
   /**
@@ -1109,7 +1064,7 @@ Campagna.ricerca = (function () {
 
       risposte.forEach(function (testo) {
         particelleDaGml(testo).forEach(function (particella) {
-          if (!geometrieSiIntersecano(geometria3857, particella.geometria)) return;
+          if (!siSovrappongono(geometria3857, particella.geometria)) return;
 
           // Si conta per riferimento completo: lo stesso numero può esistere in
           // fogli diversi, e sono due particelle distinte.
