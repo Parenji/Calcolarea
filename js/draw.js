@@ -130,6 +130,9 @@ Campagna.draw = (function () {
 
   // ----------------------------------------------------------------- modifica
 
+  /** Forma del poligono all'inizio di un trascinamento di vertici. */
+  var formaAllInizio = null;
+
   function setModify(enabled) {
     if (modifyInteraction) {
       map.removeInteraction(modifyInteraction);
@@ -154,16 +157,35 @@ Campagna.draw = (function () {
         activeFeature = feature;
         feature.set('selected', true);
         attachLive(feature.getGeometry());
+        // si annota la forma di partenza: se alla fine è identica, il gesto
+        // non è stato un trascinamento ma un tocco sul vertice
+        formaAllInizio = JSON.stringify(feature.getGeometry().getCoordinates());
       }
     });
 
     modifyInteraction.on('modifyend', function (event) {
       detachLive();
       var feature = event.features.item(0);
-      if (feature) {
-        setActiveFeature(feature);
-        refreshFeature(feature);
+      if (!feature) return;
+
+      setActiveFeature(feature);
+
+      var formaAllaFine = JSON.stringify(feature.getGeometry().getCoordinates());
+      var tocco = formaAllInizio !== null && formaAllaFine === formaAllInizio;
+      formaAllInizio = null;
+
+      if (tocco && event.mapBrowserEvent) {
+        // tocco secco su un vertice: lo si toglie (se il poligono resta tale)
+        var indice = verticeSottoIlClic(
+          map.getCoordinateFromPixel(event.mapBrowserEvent.pixel)
+        );
+        if (indice >= 0 && eliminaVertice(indice)) {
+          refreshFeature(feature);
+          return;
+        }
       }
+
+      refreshFeature(feature);
     });
 
     map.addInteraction(modifyInteraction);
@@ -243,6 +265,60 @@ Campagna.draw = (function () {
    * @param {ol.source.Vector} vectorSource
    * @param {Object} callbacks { onChange(feature, misure), onToolChange(tool) }
    */
+  /**
+   * Indice del vertice più vicino al punto cliccato, se è abbastanza vicino
+   * perché il clic valga come «tocca il vertice». La soglia è in pixel, così
+   * vale allo stesso modo con il dito e con il mouse.
+   */
+  function verticeSottoIlClic(coordinate) {
+    if (!activeFeature || !map) return -1;
+
+    var geometria = activeFeature.getGeometry();
+    if (!geometria || geometria.getType() !== 'Polygon') return -1;
+
+    var anello = geometria.getCoordinates()[0];
+    var pixel = map.getPixelFromCoordinate(coordinate);
+    if (!pixel || !anello) return -1;
+
+    var soglia = 11 * 11;
+    var vicino = -1;
+    var minima = soglia;
+
+    // l'ultimo punto ripete il primo: non è un vertice a sé
+    for (var i = 0; i < anello.length - 1; i += 1) {
+      var suo = map.getPixelFromCoordinate(anello[i]);
+      if (!suo) continue;
+      var distanza = Math.pow(suo[0] - pixel[0], 2) + Math.pow(suo[1] - pixel[1], 2);
+      if (distanza < minima) {
+        minima = distanza;
+        vicino = i;
+      }
+    }
+
+    return vicino;
+  }
+
+  /**
+   * Toglie un vertice dal poligono attivo. Il poligono deve restare tale:
+   * sotto i tre vertici non si scende.
+   */
+  function eliminaVertice(indice) {
+    if (!activeFeature || indice < 0) return false;
+
+    var geometria = activeFeature.getGeometry();
+    if (!geometria || geometria.getType() !== 'Polygon') return false;
+
+    var anelli = geometria.getCoordinates();
+    var punti = anelli[0].slice(0, anelli[0].length - 1);
+    if (punti.length <= 3) return false;
+
+    punti.splice(indice, 1);
+    punti.push(punti[0].slice());
+    anelli[0] = punti;
+    geometria.setCoordinates(anelli);
+    return true;
+  }
+
   function init(olMap, vectorSource, callbacks) {
     map = olMap;
     source = vectorSource;
@@ -276,6 +352,13 @@ Campagna.draw = (function () {
     init: init,
     setTool: setTool,
     getTool: getTool,
+    eliminaVerticeSotto: function (coordinate) {
+      var indice = verticeSottoIlClic(coordinate);
+      if (indice < 0) return false;
+      var fatto = eliminaVertice(indice);
+      if (fatto) refreshFeature(activeFeature);
+      return fatto;
+    },
     ultimaFineDisegno: function () {
       return ultimaFineDisegno;
     },

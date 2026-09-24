@@ -56,7 +56,7 @@ Campagna.main = (function () {
     Polygon: 'Clicca i vertici sulla mappa. Doppio clic (o Invio) per chiudere il poligono.',
     Box: 'Tieni premuto e trascina per disegnare il rettangolo.',
     Circle: 'Clicca il centro, poi clicca (o trascina) per definire il raggio.',
-    Modify: 'Trascina i vertici per correggere il contorno. I numeri si aggiornano da soli.',
+    Modify: 'Trascina un vertice per spostarlo, toccalo senza trascinare per eliminarlo. I numeri si aggiornano da soli.',
     null: 'Scegli uno strumento e clicca sulla mappa. Doppio clic per chiudere il poligono.'
   };
 
