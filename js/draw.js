@@ -119,13 +119,6 @@ Campagna.draw = (function () {
       feature.set('selected', true);
       activeFeature = feature;
 
-      // il lato dritto diventa il tratto di confine vero, se il modo è acceso
-      try {
-        aderisciAiConfini(feature);
-      } catch (err) {
-        console.error('[disegno] aderenza ai confini non riuscita', err);
-      }
-
       removeDrawInteraction();
       refreshFeature(feature);
       if (hooks.onToolChange) hooks.onToolChange(null);
@@ -206,183 +199,8 @@ Campagna.draw = (function () {
       });
   }
 
-  /** Vero quando i lati devono seguire i confini catastali invece di tagliarli. */
-  var seguiConfini = true;
-
-  function impostaSeguiConfini(attivo) {
-    seguiConfini = !!attivo;
-  }
-
-  function segueConfini() {
-    return seguiConfini;
-  }
-
-  /**
-   * Fa aderire i lati del poligono appena disegnato ai confini catastali.
-   *
-   * Il vertice posato con la calamita sta già sulla linea, ma il lato che lo
-   * unisce al successivo taglia la curva: qui, per ogni coppia di vertici che
-   * stanno sullo stesso confine, si inseriscono i vertici intermedi della
-   * linea catastale. Un lato dritto diventa così il tratto di confine vero,
-   * anche se è irregolare.
-   *
-   * Si tiene la strada più breve fra le due, che è quella che si intendeva
-   * seguire; se la strada più breve allunga il lato di oltre tre volte, non si
-   * tocca niente: vuol dire che il confine non era quello.
-   */
-  function aderisciAiConfini(feature) {
-    if (!seguiConfini || !feature || !sorgenteCatasto) return false;
-
-    var geometria = feature.getGeometry();
-    if (!geometria || geometria.getType() !== 'Polygon') return false;
-
-    var poligoni = sorgenteCatasto.getFeatures();
-    if (!poligoni.length) return false;
-
-    var anelli = geometria.getCoordinates();
-    var anello = anelli[0];
-    var vertici = anello.slice(0, anello.length - 1);
-    if (vertici.length < 3) return false;
-
-    var tolleranza = 0.6; // metri: quanto si considera "sopra la linea"
-    var aggiunti = 0;
-    var risultato = [];
-
-    for (var i = 0; i < vertici.length; i += 1) {
-      var A = vertici[i];
-      var B = vertici[(i + 1) % vertici.length];
-      risultato.push(A);
-
-      if (Math.abs(A[0] - B[0]) < 0.01 && Math.abs(A[1] - B[1]) < 0.01) continue;
-
-      var percorso = trattoLungoIlConfine(poligoni, A, B, tolleranza);
-      if (percorso && percorso.length > 2) {
-        for (var k = 1; k < percorso.length - 1; k += 1) {
-          risultato.push(percorso[k]);
-          aggiunti += 1;
-        }
-      }
-    }
-
-    if (!aggiunti) return false;
-
-    risultato.push(risultato[0].slice());
-    anelli[0] = risultato;
-    geometria.setCoordinates(anelli);
-    return true;
-  }
-
   function distanza(p, q) {
     return Math.sqrt(Math.pow(p[0] - q[0], 2) + Math.pow(p[1] - q[1], 2));
-  }
-
-  function lunghezza(tratto) {
-    var totale = 0;
-    for (var i = 1; i < tratto.length; i += 1) totale += distanza(tratto[i - 1], tratto[i]);
-    return totale;
-  }
-
-  /**
-   * Il tratto di confine catastale che unisce due punti, se esiste.
-   *
-   * I due punti non stanno necessariamente su un vertice del confine: la
-   * calamita li appoggia **in mezzo a un segmento**. Si cerca quindi la
-   * posizione lungo l'anello proiettando il punto sui segmenti, e da lì si
-   * percorre l'anello in un verso o nell'altro.
-   */
-  function trattoLungoIlConfine(poligoni, A, B, tolleranza) {
-    var migliore = null;
-    var migliorePunteggio = Infinity;
-
-    poligoni.forEach(function (feature) {
-      var geometria = feature.getGeometry();
-      if (!geometria) return;
-
-      var anelli = geometria.getType() === 'MultiPolygon'
-        ? geometria.getPolygons().reduce(function (tutti, poligono) {
-            return tutti.concat(poligono.getLinearRings());
-          }, [])
-        : geometria.getLinearRings();
-
-      anelli.forEach(function (anello) {
-        var punti = anello.getCoordinates();
-        var n = punti.length - 1;
-        if (n < 3) return;
-
-        var da = proiettaSullAnello(punti, A);
-        var a = proiettaSullAnello(punti, B);
-        if (!da || !a) return;
-        if (da.distanza > tolleranza || a.distanza > tolleranza) return;
-
-        var dritto = distanza(A, B);
-        var versi = [percorsoAnello(punti, n, da, a), percorsoAnello(punti, n, a, da)];
-
-        versi.forEach(function (tratto) {
-          if (!tratto || tratto.length < 2) return;
-
-          var lungo = lunghezza(tratto);
-          if (dritto > 0.5 && lungo > dritto * 3) return; // non è quel confine
-
-          var punteggio = lungo - dritto;
-          if (punteggio < migliorePunteggio) {
-            migliorePunteggio = punteggio;
-            migliore = tratto;
-          }
-        });
-      });
-    });
-
-    return migliore;
-  }
-
-  /** Punto più vicino sull'anello, con il segmento e la posizione su di esso. */
-  function proiettaSullAnello(punti, P) {
-    var migliore = null;
-
-    for (var i = 0; i + 1 < punti.length; i += 1) {
-      var a = punti[i];
-      var b = punti[i + 1];
-      var dx = b[0] - a[0];
-      var dy = b[1] - a[1];
-      var quadro = dx * dx + dy * dy;
-      var t = quadro ? ((P[0] - a[0]) * dx + (P[1] - a[1]) * dy) / quadro : 0;
-      t = Math.max(0, Math.min(1, t));
-
-      var q = [a[0] + t * dx, a[1] + t * dy];
-      var d = distanza(q, P);
-      if (!migliore || d < migliore.distanza) {
-        migliore = { segmento: i, frazione: t, distanza: d, punto: q };
-      }
-    }
-
-    return migliore;
-  }
-
-  /**
-   * Percorso lungo l'anello da un punto all'altro, nel verso in avanti,
-   * passando per i vertici intermedi del confine.
-   */
-  function percorsoAnello(punti, n, da, a) {
-    var tratto = [da.punto.slice()];
-
-    // stesso segmento: ci si arriva solo se la posizione avanza
-    if (da.segmento === a.segmento) {
-      if (a.frazione < da.frazione) return null;
-      tratto.push(a.punto.slice());
-      return tratto;
-    }
-
-    var i = da.segmento;
-    var giri = 0;
-    while (giri <= n) {
-      i = (i + 1) % n;
-      tratto.push(punti[i].slice());
-      if (i === a.segmento) break;
-      giri += 1;
-    }
-
-    tratto.push(a.punto.slice());
-    return tratto;
   }
 
   /**
@@ -659,9 +477,6 @@ Campagna.draw = (function () {
     ricaricaContorniAggancio: function () {
       caricaContorniAggancio(true);
     },
-    segueConfini: segueConfini,
-    impostaSeguiConfini: impostaSeguiConfini,
-    aderisciAiConfini: aderisciAiConfini,
     eliminaVerticeSotto: function (coordinate) {
       var indice = verticeSottoIlClic(coordinate);
       if (indice < 0) return false;
