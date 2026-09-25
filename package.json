@@ -4,7 +4,10 @@
   "private": true,
   "description": "CALCOLAREA — appezzamenti, superfici e catasto: disegna un'area sulla mappa, leggine superficie e perimetro, cerca le particelle catastali, salva ed esporta.",
   "scripts": {
-    "dev": "node scripts/dev-proxy.js"
+    "dev": "node scripts/dev-proxy.js",
+    "test:api": "node test/api-test.js",
+    "test:app": "node test/app-test.js",
+    "test": "node test/api-test.js && node test/app-test.js"
   },
   "engines": {
     "node": ">=20"

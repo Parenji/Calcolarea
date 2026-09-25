@@ -568,3 +568,21 @@ git push -u origin main
 
 e su Vercel «Add New → Project → Import Git Repository» scegliendo il repository:
 framework preset **Other**, build command vuoto, output directory `.`.
+
+## Controlli
+
+Dopo **ogni** modifica si lanciano i test: le modifiche fatte "per intervallo"
+possono portare via una funzione senza che la sintassi se ne accorga, e il
+guasto si vede solo usando l'app.
+
+```bash
+npm run test:api   # controlla i sorgenti: funzioni attese, graffe, inoltri
+npm run test:app   # apre l'app in un browser e prova i comportamenti
+npm test           # tutti e due
+```
+
+`test:app` richiede il server di sviluppo acceso (`npm run dev`) e un Chrome
+installato; su macOS lo trova da solo, altrove si indica con `CHROME_PATH`.
+Prova: caricamento dei moduli, assenza di eccezioni, numeri delle particelle,
+sfondo del catasto, calamita agganciata, superficie di una particella,
+eliminazione di un vertice con un clic vero, misure, ricerca.
