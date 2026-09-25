@@ -437,24 +437,32 @@ Campagna.ricerca = (function () {
    * la geometria in un elemento non standard (`CP:msGeometry`) che OpenLayers
    * non riconosce — provato, restituisce zero feature.
    */
-  function caricaContorno(lat, lon, codice, foglio, particella) {
+  function caricaContorno(lat, lon, codice, foglio, particella, soloMisura) {
     var bbox = [
       lat - RAGGIO_CONTORNO,
       lon - RAGGIO_CONTORNO,
       lat + RAGGIO_CONTORNO,
       lon + RAGGIO_CONTORNO
-    ].join(',');
+    ];
 
-    var url =
-      PROXY_WFS +
-      '?language=ita&SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature' +
-      '&TYPENAMES=CP:CadastralParcel&SRSNAME=urn:ogc:def:crs:EPSG::6706' +
-      '&COUNT=99&BBOX=' +
-      encodeURIComponent(bbox);
+    // Il servizio rifiuta alcuni riquadri in modo deterministico: ripetere la
+    // stessa richiesta non serve. Si ritenta spostando il riquadro di qualche
+    // metro per volta — una manciata di metri non cambia la particella.
+    function chiedi(scarto) {
+      var spostato = [
+        bbox[0] - scarto,
+        bbox[1] - scarto,
+        bbox[2] + scarto,
+        bbox[3] + scarto
+      ].join(',');
 
-    // Il servizio a volte rifiuta una richiesta che, ripetuta, riesce: si
-    // ritenta una volta prima di rinunciare.
-    function chiedi() {
+      var url =
+        PROXY_WFS +
+        '?language=ita&SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature' +
+        '&TYPENAMES=CP:CadastralParcel&SRSNAME=urn:ogc:def:crs:EPSG::6706' +
+        '&COUNT=99&BBOX=' +
+        encodeURIComponent(spostato);
+
       return fetch(url).then(function (risposta) {
         if (!risposta.ok) throw new Error('contorno non disponibile (' + risposta.status + ')');
         return risposta.text();
@@ -466,9 +474,15 @@ Campagna.ricerca = (function () {
       });
     }
 
-    return chiedi()
+    return chiedi(0)
       .catch(function () {
-        return chiedi();
+        return chiedi(0.00002);
+      })
+      .catch(function () {
+        return chiedi(0.00005);
+      })
+      .catch(function () {
+        return chiedi(0.0001);
       })
       .catch(function () {
         throw new Error('il servizio ha rifiutato la richiesta del contorno');
@@ -501,7 +515,14 @@ Campagna.ricerca = (function () {
           geometry: new ol.geom.Polygon(anelli),
           tipo: 'contorno'
         });
-        sorgente.addFeature(contorno);
+
+        // nel popup serve solo misurarlo: il livello di evidenziazione
+        // potrebbe non esistere, e comunque non va disegnato
+        if (!soloMisura) {
+          preparaEvidenza();
+          if (sorgente) sorgente.addFeature(contorno);
+        }
+
         return contorno;
       });
   }
@@ -1256,7 +1277,7 @@ Campagna.ricerca = (function () {
      * sta dentro. Serve al popup per misurarne la superficie.
      */
     contornoParticella: function (lat, lon, codice, foglio, particella) {
-      return caricaContorno(lat, lon, codice, foglio, particella);
+      return caricaContorno(lat, lon, codice, foglio, particella, true);
     },
     nomeComune: nomeComune,
     particelleNellArea: particelleNellArea,

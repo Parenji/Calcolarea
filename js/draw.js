@@ -280,21 +280,6 @@ Campagna.draw = (function () {
 
       setActiveFeature(feature);
 
-      var formaAllaFine = JSON.stringify(feature.getGeometry().getCoordinates());
-      var tocco = formaAllInizio !== null && formaAllaFine === formaAllInizio;
-      formaAllInizio = null;
-
-      if (tocco && event.mapBrowserEvent) {
-        // tocco secco su un vertice: lo si toglie (se il poligono resta tale)
-        var indice = verticeSottoIlClic(
-          map.getCoordinateFromPixel(event.mapBrowserEvent.pixel)
-        );
-        if (indice >= 0 && eliminaVertice(indice)) {
-          refreshFeature(feature);
-          return;
-        }
-      }
-
       refreshFeature(feature);
     });
 
@@ -450,6 +435,19 @@ Campagna.draw = (function () {
     map.on('moveend', function () {
       if (!getTool()) return;
       caricaContorniAggancio(false);
+    });
+
+    // In modifica vertici: si trascina un vertice per spostarlo, un clic
+    // secco lo elimina. Il clic arriva alla mappa anche mentre la modifica
+    // è attiva (verificato nel browser), quindi ci si appoggia a quello.
+    map.on('singleclick', function (event) {
+      if (getTool() !== 'Modify') return;
+
+      var indiceVertice = verticeSottoIlClic(event.coordinate);
+      if (indiceVertice < 0) return;
+      if (!eliminaVertice(indiceVertice)) return;
+
+      refreshFeature(activeFeature);
     });
 
     map.on('singleclick', function (event) {
