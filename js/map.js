@@ -29,7 +29,7 @@ Campagna.map = (function () {
   var labelsLayer = null;
   var catastoGroup = null;
   var baseLayers = {};
-  var currentBase = 'street';
+  var currentBase = 'satellite';
   var labelsWanted = true;
   var styles = null;
 
@@ -154,7 +154,7 @@ Campagna.map = (function () {
   function createBaseLayers() {
     var osm = new ol.layer.Tile({
       properties: { key: 'street', title: 'Mappa' },
-      visible: true,
+      visible: false,
       source: new ol.source.OSM({
         crossOrigin: 'anonymous',
         attributions: Campagna.config.attributions.osm
@@ -163,7 +163,7 @@ Campagna.map = (function () {
 
     var satellite = new ol.layer.Tile({
       properties: { key: 'satellite', title: 'Satellite' },
-      visible: false,
+      visible: true,
       source: new ol.source.XYZ({
         url: SATELLITE_URL,
         maxZoom: 19,
@@ -173,7 +173,7 @@ Campagna.map = (function () {
     });
 
     labelsLayer = new ol.layer.Tile({
-      visible: false,
+      visible: true,
       source: new ol.source.XYZ({
         url: LABELS_URL,
         maxZoom: 19,
