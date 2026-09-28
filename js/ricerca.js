@@ -706,6 +706,35 @@ Campagna.ricerca = (function () {
     return Number(valore).toLocaleString('it-IT');
   }
 
+  /**
+   * Ricerca precompilata da un link esterno, es.
+   * `?comune=Latera&foglio=15&particella=63`. `comune` è obbligatorio,
+   * foglio e particella restano facoltativi come nel modulo.
+   */
+  function parametriDaURL() {
+    var parametri;
+    try {
+      parametri = new URLSearchParams(window.location.search);
+    } catch (err) {
+      return null;
+    }
+    var comune = parametri.get('comune');
+    if (!comune) return null;
+    return {
+      comune: comune,
+      foglio: parametri.get('foglio') || '',
+      particella: parametri.get('particella') || ''
+    };
+  }
+
+  /** Apre il pannello laterale (rilevante solo su schermo piccolo, dove parte chiuso). */
+  function apriPannelloRicerca() {
+    var pannello = document.getElementById('sidebar');
+    if (pannello) pannello.classList.add('aperta');
+    var maniglia = document.getElementById('maniglia-pannello');
+    if (maniglia) maniglia.setAttribute('aria-expanded', 'true');
+  }
+
   // --------------------------------------------------------------------- avvio
 
   /**
@@ -771,10 +800,22 @@ Campagna.ricerca = (function () {
     });
 
     // L'elenco serve solo quando si apre la ricerca: si carica in sottofondo.
+    var daURL = parametriDaURL();
     caricaElenco()
       .then(function () {
         popolaRegioni();
         aggiornaSuggerimenti();
+
+        // Arrivati da un link esterno (es. la web app della campagna): il
+        // comune (e volendo foglio/particella) sono già nell'URL, si cerca
+        // subito senza che l'utente debba ritoccare il modulo.
+        if (daURL) {
+          if (els.comune) els.comune.value = daURL.comune;
+          if (els.foglio) els.foglio.value = daURL.foglio;
+          if (els.particella) els.particella.value = daURL.particella;
+          apriPannelloRicerca();
+          cerca();
+        }
       })
       .catch(function (err) {
         stato('Elenco comuni non caricato: ' + err.message, 'warn');
